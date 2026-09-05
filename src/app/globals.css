@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 40 33% 98%;
+  --foreground: 220 14% 12%;
+  --surface: 40 20% 95%;
+  --border: 220 13% 88%;
+  --accent-blue: 217 91% 55%;
+  --accent-teal: 172 66% 40%;
+  --accent-coral: 16 85% 60%;
+  --accent-green: 142 60% 40%;
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: 222 30% 8%;
+  --foreground: 210 20% 96%;
+  --surface: 222 24% 12%;
+  --border: 222 16% 20%;
+  --accent-blue: 217 91% 65%;
+  --accent-teal: 172 66% 50%;
+  --accent-coral: 16 85% 65%;
+  --accent-green: 142 60% 50%;
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+/* Respect the OS-level "reduce motion" preference: collapse all CSS
+   animations/transitions to effectively instant rather than removing them
+   outright, so layout doesn't jump but motion-sensitive users don't get
+   sliding panels, fading overlays, or animated charts. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Visually-hidden-until-focused utility for skip links. Tailwind's `sr-only`
+   plus `focus:not-sr-only` (used on the skip link) covers the toggle; this
+   just ensures the focused state doesn't get clipped by any ancestor. */
+:focus-visible {
+  outline-offset: 2px;
+}

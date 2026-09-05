@@ -1,0 +1,323 @@
+// Pulse — Personal Intelligence & Growth Platform
+// Prisma schema targeting SQLite for zero-setup local development — no
+// Docker, no database server, no OS-level configuration. The file lives at
+// prisma/dev.db and is created automatically the first time you migrate.
+//
+// Enums are modeled as plain String fields rather than native Prisma enums,
+// since SQLite has no enum type at the database level. Validity is enforced
+// at the application boundary via the existing Zod schemas in
+// src/server/validation/ — those were already the source of truth for valid
+// values throughout this codebase, so this changes nothing about how the
+// app actually behaves, only how the column is declared in the schema.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Core identity ──────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile     Profile?
+  preferences UserPreference?
+  sessions    Session[]
+
+  skills              Skill[]
+  goals               Goal[]
+  learningResources   LearningResource[]
+  learningSessions    LearningSession[]
+  savedArticles       SavedArticle[]
+  activities          Activity[]
+  notifications       Notification[]
+  passwordResetTokens PasswordResetToken[]
+
+  @@map("users")
+}
+
+// Single-use, short-lived token for the forgot/reset-password flow.
+// Only a hash is ever persisted — the raw token exists only in the
+// emailed link and is never written to disk.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// Server-side session record so sessions can be listed / revoked,
+// rather than relying purely on an unrevokable stateless JWT.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Profile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avatarUrl String?
+  bio       String?
+  jobTitle  String?
+  company   String?
+  location  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("profiles")
+}
+
+// theme:     "LIGHT" | "DARK" | "SYSTEM"          (enforced by Zod)
+// interests: JSON-encoded string array, e.g. '["AI","STARTUPS"]' — SQLite
+//            has no native array type, so this is serialized on write and
+//            parsed on the one read site (src/server/services/dashboard.ts).
+model UserPreference {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme              String   @default("SYSTEM")
+  interests          String   @default("[]")
+  emailNotifications Boolean  @default(true)
+  digestFrequency    String   @default("weekly")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("user_preferences")
+}
+
+// ─── Growth: skills ─────────────────────────────────────────────────────
+
+model Skill {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  category     String?
+  currentLevel Int      @default(0)
+  targetLevel  Int      @default(100)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  history SkillProgress[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("skills")
+}
+
+model SkillProgress {
+  id         String   @id @default(cuid())
+  skillId    String
+  skill      Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  level      Int
+  note       String?
+  recordedAt DateTime @default(now())
+
+  @@index([skillId])
+  @@map("skill_progress")
+}
+
+// ─── Goals ──────────────────────────────────────────────────────────────
+
+// status:   "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED" | "PAUSED"
+// priority: "LOW" | "MEDIUM" | "HIGH"
+model Goal {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  status      String    @default("NOT_STARTED")
+  priority    String    @default("MEDIUM")
+  progress    Int       @default(0)
+  deadline    DateTime?
+  archivedAt  DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  milestones GoalMilestone[]
+
+  @@index([userId])
+  @@index([userId, status])
+  @@map("goals")
+}
+
+model GoalMilestone {
+  id          String    @id @default(cuid())
+  goalId      String
+  goal        Goal      @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  title       String
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  @@index([goalId])
+  @@map("goal_milestones")
+}
+
+// ─── Learning ───────────────────────────────────────────────────────────
+
+// type:   "COURSE" | "BOOK" | "ARTICLE" | "TUTORIAL" | "DOCUMENTATION" | "VIDEO"
+// status: "WANT_TO_LEARN" | "LEARNING" | "COMPLETED"
+model LearningResource {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  type      String
+  category  String?
+  url       String?
+  status    String   @default("WANT_TO_LEARN")
+  progress  Int      @default(0)
+  rating    Int?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions LearningSession[]
+
+  @@index([userId])
+  @@index([userId, status])
+  @@map("learning_resources")
+}
+
+model LearningSession {
+  id              String            @id @default(cuid())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resourceId      String?
+  resource        LearningResource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  durationMinutes Int
+  note            String?
+  occurredAt      DateTime          @default(now())
+  createdAt       DateTime          @default(now())
+
+  @@index([userId])
+  @@index([resourceId])
+  @@map("learning_sessions")
+}
+
+// ─── News / discovery ───────────────────────────────────────────────────
+
+// category: "TECHNOLOGY" | "AI" | "STARTUPS" | "SOFTWARE_ENGINEERING" |
+//           "PRODUCT" | "BUSINESS" | "DESIGN" | "CYBERSECURITY"
+//
+// Search: the Postgres build of this schema used a generated `tsvector`
+// column with a GIN index for real ranked full-text search. SQLite has no
+// equivalent generated-column/GIN mechanism reachable from Prisma, so
+// article search here uses a plain case-insensitive `contains` across
+// title/subtitle/content (see src/server/services/articles.ts) — a
+// deliberate simplification for local-dev portability, not an oversight.
+model Article {
+  id                 String   @id @default(cuid())
+  slug               String   @unique
+  title              String
+  subtitle           String?
+  source             String
+  author             String?
+  category           String
+  imageUrl           String?
+  url                String
+  content            String
+  readingTimeMinutes Int      @default(4)
+  publishedAt        DateTime
+  createdAt          DateTime @default(now())
+
+  tags          Tag[]
+  savedArticles SavedArticle[]
+
+  @@index([category])
+  @@index([publishedAt])
+  @@map("articles")
+}
+
+model Tag {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  articles Article[]
+
+  @@map("tags")
+}
+
+model SavedArticle {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  articleId  String
+  article    Article   @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  folder     String?
+  notes      String?
+  isFavorite Boolean   @default(false)
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+  savedAt    DateTime  @default(now())
+
+  @@unique([userId, articleId])
+  @@index([userId])
+  @@map("saved_articles")
+}
+
+// ─── Activity feed + notifications ─────────────────────────────────────
+
+// type: "GOAL_CREATED" | "GOAL_COMPLETED" | "MILESTONE_COMPLETED" |
+//       "ARTICLE_SAVED" | "RESOURCE_COMPLETED" | "SKILL_UPDATED" |
+//       "LEARNING_SESSION_LOGGED"
+// metadata: optional JSON-encoded string (not currently written by any
+//           service — kept as a plain String rather than Prisma's Json
+//           type to sidestep any SQLite/Json edge cases for a field with
+//           no current consumer).
+model Activity {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String
+  title       String
+  description String?
+  metadata    String?
+  occurredAt  DateTime @default(now())
+
+  @@index([userId, occurredAt])
+  @@map("activities")
+}
+
+// type: "SYSTEM" | "GOAL_DEADLINE" | "STREAK" | "DIGEST"
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
