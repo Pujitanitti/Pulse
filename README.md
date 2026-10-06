@@ -30,7 +30,7 @@ For the phase-by-phase build history — what was built when, what was verified 
 16. [Project structure](#project-structure)
 17. [Engineering challenges](#engineering-challenges)
 18. [Future improvements](#future-improvements)
-19. [Interview discussion](#interview-discussion)
+
 
 ---
 
